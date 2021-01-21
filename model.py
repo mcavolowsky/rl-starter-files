@@ -16,12 +16,14 @@ def init_params(m):
 
 
 class ACModel(nn.Module, torch_ac.RecurrentACModel):
-    def __init__(self, obs_space, action_space, use_memory=False, use_text=False):
+    def __init__(self, obs_space, action_space, reward_size, use_memory=False, use_text=False):
         super().__init__()
 
         # Decide which components are enabled
         self.use_text = use_text
         self.use_memory = use_memory
+
+        self.reward_size = reward_size
 
         # Define image embedding
         self.image_conv = nn.Sequential(
@@ -64,7 +66,7 @@ class ACModel(nn.Module, torch_ac.RecurrentACModel):
         self.critic = nn.Sequential(
             nn.Linear(self.embedding_size, 64),
             nn.Tanh(),
-            nn.Linear(64, 1)
+            nn.Linear(64, self.reward_size)
         )
 
         # Initialize parameters correctly
