@@ -124,32 +124,32 @@ def main():
         pass
 
 
-args.mem = args.recurrence > 1
+    args.mem = args.recurrence > 1
 
-# Set run dir
+    # Set run dir
 
-date = datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
-default_model_name = f"{args.env}_{args.algo}_seed{args.seed}_{date}"
+    date = datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
+    default_model_name = f"{args.env}_{args.algo}_seed{args.seed}_{date}"
 
-model_name = args.model or default_model_name
-model_dir = utils.get_model_dir(model_name)
+    model_name = args.model or default_model_name
+    model_dir = utils.get_model_dir(model_name)
 
-# Load loggers and Tensorboard writer
+    # Load loggers and Tensorboard writer
 
-txt_logger = utils.get_txt_logger(model_dir)
-csv_file, csv_logger = utils.get_csv_logger(model_dir)
-tb_writer = tensorboardX.SummaryWriter(model_dir)
+    txt_logger = utils.get_txt_logger(model_dir)
+    csv_file, csv_logger = utils.get_csv_logger(model_dir)
+    tb_writer = tensorboardX.SummaryWriter(model_dir)
 
-# Log command and all script arguments
+    # Log command and all script arguments
 
-txt_logger.info("{}\n".format(" ".join(sys.argv)))
-txt_logger.info("{}\n".format(args))
+    txt_logger.info("{}\n".format(" ".join(sys.argv)))
+    txt_logger.info("{}\n".format(args))
 
-# Set seed for all randomness sources
+    # Set seed for all randomness sources
 
-utils.seed(args.seed)
+    utils.seed(args.seed)
 
-# Set device
+    # Set device
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     txt_logger.info(f"Device: {device}\n")
