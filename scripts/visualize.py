@@ -43,14 +43,14 @@ def main():
     else:
         args.env = 'MiniGrid-DoorKey-5x5-v0'
         args.env = 'MiniGrid-KeyCorridorGBLA-v0'
-        args.model = 'KeyCorridor'
-        args.episodes = 100
+        args.model = 'KeyCorridor1'
+        args.episodes = 10
         args.seed = 0
         args.shift = 0
         args.argmax = False
         args.memory = False
         args.text = False
-        args.gif = False
+        args.gif = 'storage/'+args.model + '/' + args.model
         args.pause = 0.1
 
     if args.env == 'MiniGrid-KeyCorridorGBLA-v0':
