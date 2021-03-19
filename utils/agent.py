@@ -18,7 +18,7 @@ class Agent:
     - to choose an action given an observation,
     - to analyze the feedback (i.e. reward and done state) of its action."""
 
-    def __init__(self, env, model_dir, model_type='PPO2', logger=None,
+    def __init__(self, env_fac, model_dir, model_type='PPO2', logger=None,
                  argmax=False, use_memory=False, use_text=False,
                  num_cpu=1, frames_per_proc=None,
                  discount=0.99, lr=0.001, gae_lambda=0.95,
@@ -26,8 +26,11 @@ class Agent:
                  optim_alpha=None,
                  clip_eps=0.2, epochs=4, batch_size=256):
 
-        if env.goal:
-            self.model_dir = model_dir + env.goal.goalId + '/'
+        self.env_fac = env_fac
+        self.set_env(self.env_fac())
+
+        if self.env.goal:
+            self.model_dir = model_dir + self.env.goal.goalId + '/'
         else:
             self.model_dir = model_dir
 
@@ -50,8 +53,6 @@ class Agent:
         self.txt_logger = logger
         self.csv_file, self.csv_logger = utils.get_csv_logger(self.model_dir)
         self.tb_writer = tensorboardX.SummaryWriter(self.model_dir)
-
-        self.set_env(env)
 
         self.algo = None
 
@@ -95,7 +96,7 @@ class Agent:
 
         if self.model_type == "A2C":
             assert self.optim_alpha
-            self.training_envs = [deepcopy(self.env) for i in range(num_envs)]
+            self.training_envs = [self.env_fac() for i in range(num_envs)]
 
             if self.acmodel.recurrent:
                 self.memories = torch.zeros(num_envs, self.acmodel.memory_size, device=self.device)
@@ -107,7 +108,7 @@ class Agent:
                                 self.optim_alpha, self.optim_eps, self.preprocess_obss)
         elif self.model_type == "PPO2":
             assert self.clip_eps and self.epochs and self.batch_size
-            self.training_envs = [deepcopy(self.env) for i in range(num_envs)]
+            self.training_envs = [self.env_fac() for i in range(num_envs)]
 
             if self.acmodel.recurrent:
                 self.memories = torch.zeros(num_envs, self.acmodel.memory_size, device=self.device)
