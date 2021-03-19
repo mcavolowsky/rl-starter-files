@@ -73,6 +73,9 @@ class Agent:
         self.device = device
         self.argmax = argmax
 
+        if self.acmodel.recurrent:
+            self.memories = torch.zeros(num_cpu, self.acmodel.memory_size, device=self.device)
+
         if "model_state" in self.status:
             self.acmodel.load_state_dict(self.status["model_state"])
         self.acmodel.to(device)
