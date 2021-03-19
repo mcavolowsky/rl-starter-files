@@ -200,6 +200,8 @@ class Agent:
         self.algo.env = None
         self.training_envs = None
 
+        time.sleep(0.1)             # attempt to fix broken pipe errors
+
     def save(self, f):
         print('self.save() - currently not implemented')
 
@@ -208,8 +210,8 @@ class Agent:
         self.env = env
         self.training_envs = None
 
-    def predict(self, obss, state=None, deterministic=False):
-        return self.get_actions(obss)
+    def predict(self, obs, state=None, deterministic=False):
+        return self.get_action(obs), None   # return action, states - states is unused at the moment
 
     def setup_model(self):
         print('self.setup_model() - currently not implemented')
