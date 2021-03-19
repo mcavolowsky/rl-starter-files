@@ -18,14 +18,36 @@ class Agent:
     - to choose an action given an observation,
     - to analyze the feedback (i.e. reward and done state) of its action."""
 
-    def __init__(self, env, model_dir, logger=None,
-                 argmax=False, use_memory=False, use_text=False):
-        self.txt_logger = logger
+    def __init__(self, env, model_dir, model_type='PPO2', logger=None,
+                 argmax=False, use_memory=False, use_text=False,
+                 num_cpu=1, frames_per_proc=None,
+                 discount=0.99, lr=0.001, gae_lambda=0.95,
+                 entropy_coef=0.01, value_loss_coef=0.5, max_grad_norm=0.5, recurrence=1, optim_eps=1e-8,
+                 optim_alpha=None,
+                 clip_eps=0.2, epochs=4, batch_size=256):
+
         if env.goal:
             self.model_dir = model_dir + env.goal.goalId + '/'
         else:
             self.model_dir = model_dir
 
+        self.model_type = model_type
+        self.num_cpu = num_cpu
+        self.frames_per_proc = frames_per_proc
+        self.discount = discount
+        self.lr = lr
+        self.gae_lambda = gae_lambda
+        self.entropy_coef = entropy_coef
+        self.value_loss_coef = value_loss_coef
+        self.max_grad_norm = max_grad_norm
+        self.recurrence = recurrence
+        self.optim_eps = optim_eps
+        self.optim_alpha = optim_alpha
+        self.clip_eps = clip_eps
+        self.epochs = epochs
+        self.batch_size = batch_size
+
+        self.txt_logger = logger
         self.csv_file, self.csv_logger = utils.get_csv_logger(self.model_dir)
         self.tb_writer = tensorboardX.SummaryWriter(self.model_dir)
 
@@ -64,35 +86,34 @@ class Agent:
         if hasattr(self.preprocess_obss, "vocab"):
             self.preprocess_obss.vocab.load_vocab(utils.get_vocab(model_dir))
 
-    def init_training_algo(self, algo_type, num_cpu,
-                    frames_per_proc, discount, lr, gae_lambda,
-                    entropy_coef, value_loss_coef, max_grad_norm, recurrence, optim_eps,
-                    optim_alpha=None,
-                    clip_eps=None, epochs=None, batch_size=None):
-        if algo_type == "a2c":
-            assert optim_alpha
-            self.training_envs = [deepcopy(self.env) for i in range(num_cpu)]
+    def init_training_algo(self, num_envs=None):
+        if not num_envs:
+            num_envs = self.num_cpu
+
+        if self.model_type == "A2C":
+            assert self.optim_alpha
+            self.training_envs = [deepcopy(self.env) for i in range(num_envs)]
 
             if self.acmodel.recurrent:
-                self.memories = torch.zeros(num_cpu, self.acmodel.memory_size, device=self.device)
+                self.memories = torch.zeros(num_envs, self.acmodel.memory_size, device=self.device)
 
             self.algo = torch_ac.A2CAlgo(self.training_envs,
-                                    self.acmodel, self.device,
-                                    frames_per_proc, discount, lr, gae_lambda,
-                                    entropy_coef, value_loss_coef, max_grad_norm, recurrence,
-                                    optim_alpha, optim_eps, self.preprocess_obss)
-        elif algo_type == "ppo":
-            assert clip_eps and epochs and batch_size
-            self.training_envs = [deepcopy(self.env) for i in range(num_cpu)]
+                                self.acmodel, self.device,
+                                self.frames_per_proc, self.discount, self.lr, self.gae_lambda,
+                                self.entropy_coef, self.value_loss_coef, self.max_grad_norm, self.recurrence,
+                                self.optim_alpha, self.optim_eps, self.preprocess_obss)
+        elif self.model_type == "PPO2":
+            assert self.clip_eps and self.epochs and self.batch_size
+            self.training_envs = [deepcopy(self.env) for i in range(num_envs)]
 
             if self.acmodel.recurrent:
-                self.memories = torch.zeros(num_cpu, self.acmodel.memory_size, device=self.device)
+                self.memories = torch.zeros(num_envs, self.acmodel.memory_size, device=self.device)
 
             self.algo = torch_ac.PPOAlgo(self.training_envs,
-                                    self.acmodel, self.device,
-                                    frames_per_proc, discount, lr, gae_lambda,
-                                    entropy_coef, value_loss_coef, max_grad_norm, recurrence,
-                                    optim_eps, clip_eps, epochs, batch_size, self.preprocess_obss)
+                                self.acmodel, self.device,
+                                self.frames_per_proc, self.discount, self.lr, self.gae_lambda,
+                                self.entropy_coef, self.value_loss_coef, self.max_grad_norm, self.recurrence,
+                                self.optim_eps, self.clip_eps, self.epochs, self.batch_size, self.preprocess_obss)
         else:
             raise ValueError("Incorrect algorithm name: {}".format(algo_type))
 
@@ -100,7 +121,9 @@ class Agent:
             self.algo.optimizer.load_state_dict(self.status["optimizer_state"])
         self.txt_logger.info("Optimizer loaded\n")
 
-    def learn(self, total_timesteps, log_interval=1, save_interval=10):
+    def learn(self, total_timesteps, log_interval=1, save_interval=10, save_env_info=True):
+        self.init_training_algo()
+
         self.num_frames = self.status["num_frames"]
         update = self.status["update"]
         start_time = time.time()
@@ -154,9 +177,12 @@ class Agent:
 
             if save_interval > 0 and update % save_interval == 0:
                 self._save_training_info(update)
+                if save_env_info:
+                    for e in self.training_envs:
+                        if hasattr(e, 'save_env_info'): e.save_env_info()
 
-        # the termination set gets lost, so we need to store it again
-        self.env.termination_set = [s for e in self.training_envs for s in e.termination_set]
+        self._clear_training_envs()
+
         return True
 
     def _save_training_info(self, update):
@@ -166,6 +192,13 @@ class Agent:
             self.status["vocab"] = self.preprocess_obss.vocab.vocab
         utils.save_status(self.status, self.model_dir)
         self.txt_logger.info("Status saved")
+
+    def _clear_training_envs(self):
+        # the termination set gets lost, so we need to store it again
+        self.env.termination_set = [s for e in self.training_envs for s in e.termination_set]
+
+        self.algo.env = None
+        self.training_envs = None
 
     def save(self, f):
         print('self.save() - currently not implemented')
