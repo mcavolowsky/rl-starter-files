@@ -53,7 +53,8 @@ class Agent:
         if self.acmodel.recurrent:
             self.memories = torch.zeros(self.num_envs, self.acmodel.memory_size, device=self.device)
 
-        self.acmodel.load_state_dict(utils.get_model_state(model_dir))
+        if 'model_state' in self.status:
+            self.acmodel.load_state_dict(self.status['model_state'])
         self.acmodel.to(self.device)
         self.acmodel.eval()
         if hasattr(self.preprocess_obss, "vocab"):
@@ -136,12 +137,16 @@ class Agent:
             # Save status
 
             if save_interval > 0 and update % save_interval == 0:
-                self.status = {"num_frames": self.num_frames, "update": update,
-                          "model_state": acmodel.state_dict(), "optimizer_state": self.algo.optimizer.state_dict()}
-                if hasattr(preprocess_obss, "vocab"):
-                    self.status["vocab"] = preprocess_obss.vocab.vocab
-                utils.save_status(self.status, model_dir)
-                self.txt_logger.info("Status saved")
+                self._save_training_info(update)
+        return True
+
+    def _save_training_info(self, update):
+        self.status = {"num_frames": self.num_frames, "update": update,
+                       "model_state": self.acmodel.state_dict(), "optimizer_state": self.algo.optimizer.state_dict()}
+        if hasattr(self.preprocess_obss, "vocab"):
+            self.status["vocab"] = self.preprocess_obss.vocab.vocab
+        utils.save_status(self.status, self.model_dir)
+        self.txt_logger.info("Status saved")
 
     def set_envs(self, envs):
         self.envs = envs

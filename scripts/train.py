@@ -11,7 +11,7 @@ import gym_minigrid
 from training import TaskDescriptor
 import GoalRL
 from gym_minigrid.envs.goaldescriptor import *
-from stable_baselines.bench import Monitor              # stable baselines helper function for monitoring training
+#from stable_baselines.bench import Monitor              # stable baselines helper function for monitoring training
 
 import utils
 from model import ACModel
@@ -82,8 +82,8 @@ def main():
         args.env = 'MiniGrid-KeyCorridorGBLA-v0'
         args.algo = 'ppo'
         args.seed = 1234
-        args.model = 'KeyCorridor1'
-        args.frames = 1e6
+        args.model = 'KeyCorridor2'
+        args.frames = 2e5
         args.procs = 16
         args.text = False
         args.frames_per_proc = None
@@ -212,6 +212,7 @@ def main():
                 log_interval=args.log_interval,
                 save_interval=args.save_interval)
 
+    print('training completed!')
 
 if __name__ == '__main__':
     main()
