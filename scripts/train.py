@@ -172,12 +172,13 @@ def main():
 
     # Load model
 
-    agent = utils.Agent(envs, model_dir, logger=txt_logger,
+    agent = utils.Agent(env, model_dir, logger=txt_logger,
                         argmax=args.argmax, use_memory=args.mem, use_text=args.text)
 
     # Load algo
     if args.algo == 'a2c':
         agent.init_training_algo(algo_type=args.algo,
+                num_cpu=args.procs,
                 frames_per_proc=args.frames_per_proc,
                 discount=args.discount,
                 lr=args.lr,
@@ -191,6 +192,7 @@ def main():
                 optim_alpha=args.optim_alpha)   # args for A2C
     elif args.algo == 'ppo':
         agent.init_training_algo(algo_type=args.algo,
+                num_cpu=args.procs,
                 frames_per_proc=args.frames_per_proc,
                 discount=args.discount,
                 lr=args.lr,
@@ -208,7 +210,7 @@ def main():
         raise ValueError("Incorrect algorithm name: {}".format(args.algo))
 
 
-    agent.learn(time_steps=args.frames,
+    agent.learn(total_timesteps=args.frames,
                 log_interval=args.log_interval,
                 save_interval=args.save_interval)
 
