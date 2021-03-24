@@ -216,9 +216,6 @@ class Agent:
     def predict(self, obs, state=None, deterministic=False):
         return self.get_action(obs), None   # return action, states - states is unused at the moment
 
-    def setup_model(self):
-        print('self.setup_model() - currently not implemented')
-
     def get_actions(self, obss):
         preprocessed_obss = self.preprocess_obss(obss, device=self.device)
 
