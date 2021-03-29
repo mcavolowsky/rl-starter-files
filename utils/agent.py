@@ -192,24 +192,25 @@ class Agent:
 
         # initialize parameters
         self.num_frames = self.status["num_frames"]
-        update = self.status["update"]
+        self.update = self.status["update"]
         start_time = time.time()
 
+        # loop until we reach the desired number of timesteps
         while self.num_frames < total_timesteps:
             # Update model parameters
 
-            update_start_time = time.time()
-            exps, logs1 = self.algo.collect_experiences()
-            logs2 = self.algo.update_parameters(exps)
-            logs = {**logs1, **logs2}
+            update_start_time = time.time()                 # store the time (for fps calculations)
+            exps, logs1 = self.algo.collect_experiences()   # collect a number of data points for training
+            logs2 = self.algo.update_parameters(exps)       # update the parameters based on the experiences
+            logs = {**logs1, **logs2}                       # merge the logs for printing
             update_end_time = time.time()
 
             self.num_frames += logs["num_frames"]
-            update += 1
+            self.update += 1
 
-            # Print logs
+            # all of this messy stuff is just storing and printing the log info
 
-            if update % log_interval == 0:
+            if self.update % log_interval == 0:
                 fps = logs["num_frames"]/(update_end_time - update_start_time)
                 duration = int(time.time() - start_time)
                 return_per_episode = utils.synthesize(logs["return_per_episode"])
@@ -217,7 +218,7 @@ class Agent:
                 num_frames_per_episode = utils.synthesize(logs["num_frames_per_episode"])
 
                 header = ["update", "frames", "FPS", "duration"]
-                data = [update, self.num_frames, fps, duration]
+                data = [self.update, self.num_frames, fps, duration]
                 header += ["rreturn_" + key for key in rreturn_per_episode.keys()]
                 data += rreturn_per_episode.values()
                 header += ["num_frames_" + key for key in num_frames_per_episode.keys()]
@@ -242,8 +243,8 @@ class Agent:
 
             # Save status
 
-            if save_interval > 0 and update % save_interval == 0:
-                self._save_training_info(update)
+            if save_interval > 0 and self.update % save_interval == 0:
+                self._save_training_info()
                 if save_env_info:
                     for e in self.training_envs:
                         if hasattr(e, 'save_env_info'): e.save_env_info()
@@ -252,29 +253,32 @@ class Agent:
 
         return True
 
-    def _save_training_info(self, update):
+    def _save_training_info(self):
+        """
+        Function to save the training info.
         """
 
-        :param update:
-        """
-        self.status = {"num_frames": self.num_frames, "update": update,
+        # update the status dictionary
+        self.status = {"num_frames": self.num_frames, "update": self.update,
                        "model_state": self.acmodel.state_dict(), "optimizer_state": self.algo.optimizer.state_dict()}
-        if hasattr(self.preprocess_obss, "vocab"):
+
+        if hasattr(self.preprocess_obss, "vocab"):      # if we are using NLP save, NLP info
             self.status["vocab"] = self.preprocess_obss.vocab.vocab
-        utils.save_status(self.status, self.model_dir)
+
+        utils.save_status(self.status, self.model_dir)  # save the status info to model_dir
         self.txt_logger.info("Status saved")
 
     def _clear_training_envs(self):
         """
-
+        Clear the training environments to free up memory.
         """
+
         # the termination set gets lost, so we need to store it again
         self.env.termination_set = [s for e in self.training_envs for s in e.termination_set]
 
+        # clear the env and the training envs
         self.algo.env = None
         self.training_envs = None
-
-        time.sleep(0.1)             # attempt to fix broken pipe errors
 
     def save(self, f):
         """
@@ -287,9 +291,11 @@ class Agent:
 
     def set_env(self, env):
         """
+        Set the environment and clear the training environments
 
-        :param env:
+        :param env: environment for training/acting
         """
+        # check to make sure the environment is the correct type
         assert isinstance(env, gym.Env)
         self.env = env
         self.training_envs = None
@@ -309,6 +315,8 @@ class Agent:
 
     def get_actions(self, obss):
         """
+        Get a list of actions for a list of observations.
+
 
 
         :param obss: list of observations for predicting actions
@@ -319,15 +327,17 @@ class Agent:
         with torch.no_grad():                   # don't calculate the gradients, since we are doing a forward pass
             if self.acmodel.recurrent:          # if we are using a recurrent model
                 dist, _, self.memories = self.acmodel(preprocessed_obss, self.memories)
-            else:
+            else:                               # otherwise
                 dist, _ = self.acmodel(preprocessed_obss)
+                                                # preprocess the observations to put them in a torch-friendly format
 
-        if self.argmax:
+        # the acmodel returns a probability distribution
+        if self.argmax:                         # if we are detemrinistic, take the action with the highest probability
             actions = dist.probs.max(1, keepdim=True)[1]
-        else:
+        else:                                   # otherwise sample the distribution to select the action
             actions = dist.sample()
 
-        return actions.cpu().numpy()
+        return actions.cpu().numpy()            # reaturn a numpy array, not a tensor
 
     def get_action(self, obs):
         """
