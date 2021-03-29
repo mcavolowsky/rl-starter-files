@@ -17,6 +17,13 @@ def init_params(m):
 
 class ACModel(nn.Module, torch_ac.RecurrentACModel):
     def __init__(self, obs_space, action_space, use_memory=False, use_text=False):
+        """
+
+        :param obs_space:
+        :param action_space:
+        :param use_memory:
+        :param use_text:
+        """
         super().__init__()
 
         # Decide which components are enabled
@@ -33,15 +40,15 @@ class ACModel(nn.Module, torch_ac.RecurrentACModel):
             nn.Conv2d(32, 64, (2, 2)),
             nn.ReLU()
         )
-        n = obs_space["image"][0]
-        m = obs_space["image"][1]
+        n = obs_space["image"][0]       # calculate the image embedding size
+        m = obs_space["image"][1]       # based on the LxH of the observation space
         self.image_embedding_size = ((n-1)//2-2)*((m-1)//2-2)*64
 
-        # Define memory
+        # Define memory             - NOT CURRENTLY USED
         if self.use_memory:
             self.memory_rnn = nn.LSTMCell(self.image_embedding_size, self.semi_memory_size)
 
-        # Define text embedding
+        # Define text embedding     - NOT CURRENTLY USED
         if self.use_text:
             self.word_embedding_size = 32
             self.word_embedding = nn.Embedding(obs_space["text"], self.word_embedding_size)
@@ -79,30 +86,46 @@ class ACModel(nn.Module, torch_ac.RecurrentACModel):
         return self.image_embedding_size
 
     def forward(self, obs, memory):
-        x = obs.image.transpose(1, 3).transpose(2, 3)
-        x = self.image_conv(x)
-        x = x.reshape(x.shape[0], -1)
+        """
+        Calculate the forward pass through the network based on the provided inputs (and memory, if using LSTM).
 
-        if self.use_memory:
+        :param obs: observation input to the network
+        :param memory: memory state of the network (from the previous iteration)
+        :return: tuple (action distribution, value, memory)
+                 action distribution - soft-max distribution over the actions
+                 value - value of current state
+                 memory - memory state of the network (for the current iteration)
+        """
+        x = obs.image.transpose(1, 3).transpose(2, 3)   # transpose the inputs for compatibility
+        x = self.image_conv(x)                          # pass the processed image through the convolutional layers
+        x = x.reshape(x.shape[0], -1)                   # flatten the image into a single dimension
+
+        if self.use_memory:                             # if we are using the LSTM
             hidden = (memory[:, :self.semi_memory_size], memory[:, self.semi_memory_size:])
             hidden = self.memory_rnn(x, hidden)
             embedding = hidden[0]
             memory = torch.cat(hidden, dim=1)
-        else:
+        else:                                           # otherwise, passthrogh
             embedding = x
 
-        if self.use_text:
+        if self.use_text:                               # if we are using the text input
             embed_text = self._get_embed_text(obs.text)
             embedding = torch.cat((embedding, embed_text), dim=1)
 
-        x = self.actor(embedding)
+        x = self.actor(embedding)                       # process the actor to generate the probability distribution
         dist = Categorical(logits=F.log_softmax(x, dim=1))
 
-        x = self.critic(embedding)
+        x = self.critic(embedding)                      # process the critic to generate the value function
         value = x.squeeze(1)
 
         return dist, value, memory
 
     def _get_embed_text(self, text):
+        """
+        Process the text to create the text embedding (via the RNN).
+
+        :param text: text to process
+        :return: embedded text implementation
+        """
         _, hidden = self.text_rnn(self.word_embedding(text))
         return hidden[-1]

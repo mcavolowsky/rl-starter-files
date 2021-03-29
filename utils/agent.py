@@ -1,23 +1,27 @@
-import time
+"""
+File: agent.py
+Authors: mark cavolowsky <mark.cavolowsky@navy.mil>
+Last updated: March 26, 2021
 
-import torch
+This is the module for the goal-skill agent based on the Agent class in rl-starter-files.
+
+This is a major update to the rl-starter-files implementation to allow for an object-oriented training structure.
+
+"""
+import time                         # import standard libraries
+
+import torch                        # import torch and torch_ac for training
 import torch_ac
-import tensorboardX
+import tensorboardX                 # import training monitoring library
 
-import gym
+import gym                          # import gym for type-checking
 
-import utils
-from model import ACModel
+import utils                        # import rl-starter-files utils (loggers, saving/loading, obs preprocessor, etc.)
+from model import ACModel           #
 
-from copy import deepcopy
+from copy import deepcopy           # import deepcopy for spawning new env instances
 
 class Agent:
-    """An agent.
-
-    It is able:
-    - to choose an action given an observation,
-    - to analyze the feedback (i.e. reward and done state) of its action."""
-
     def __init__(self, env, model_dir, model_type='PPO2', logger=None,
                  argmax=False, use_memory=False, use_text=False,
                  num_cpu=1, frames_per_proc=None,
@@ -25,12 +29,40 @@ class Agent:
                  entropy_coef=0.01, value_loss_coef=0.5, max_grad_norm=0.5, recurrence=1, optim_eps=1e-8,
                  optim_alpha=None,
                  clip_eps=0.2, epochs=4, batch_size=256):
+        """
+        Initialize the Agent object.
 
-        if env.goal:
+        This primarily includes storing of the configuration parameters, but there is some other logic for correctly
+        initializing the agent.
+
+        :param env: the environment for training
+        :param model_dir: the save directory (appended with the goal_id in initialization)
+        :param model_type: the type of model {'PPO2', 'A2C'}
+        :param logger: existing text logger
+        :param argmax: if we use determinsitic or probabilistic action selection
+        :param use_memory: if we are using an LSTM
+        :param use_text: if we are using NLP to parse the goal
+        :param num_cpu: the number of parallel instances for training
+        :param frames_per_proc: max time_steps per process (versus constant)
+        :param discount: the discount factor (gamma)
+        :param lr: the learning rate
+        :param gae_lambda: the generalized advantage estimator lambda parameter (training smoothing parameter)
+        :param entropy_coef: relative weight for entropy loss
+        :param value_loss_coef: relative weight for value function loss
+        :param max_grad_norm: max scaling factor for the gradient
+        :param recurrence: number of recurrent steps
+        :param optim_eps: minimum value to prevent numerical instability
+        :param optim_alpha: RMSprop decay parameter (A2C only)
+        :param clip_eps: clipping parameter for the advantage and value function (PPO2 only)
+        :param epochs: number of epochs in the parameter update (PPO2 only)
+        :param batch_size: number of samples for the parameter update (PPO2 only)
+        """
+        if hasattr(env, 'goal') and env.goal:   # if the environment has a goal, set the model_dir to the goal folder
             self.model_dir = model_dir + env.goal.goalId + '/'
-        else:
+        else:                                   # otherwise just use the model_dir as is
             self.model_dir = model_dir
 
+        # store all of the input parameters
         self.model_type = model_type
         self.num_cpu = num_cpu
         self.frames_per_proc = frames_per_proc
@@ -47,20 +79,21 @@ class Agent:
         self.epochs = epochs
         self.batch_size = batch_size
 
+        # use the existing logger and create two new ones
         self.txt_logger = logger
         self.csv_file, self.csv_logger = utils.get_csv_logger(self.model_dir)
         self.tb_writer = tensorboardX.SummaryWriter(self.model_dir)
 
-        self.set_env(env)
+        self.set_env(env)   # set the environment to with some additional checks and init of training_envs
 
-        self.algo = None
+        self.algo = None    # we don't initialize the algorithm until we call init_training_algo()
 
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.txt_logger.info(f"Device: {device}\n")
 
-        try:
+        try:                # if we have a saved model, load it
             self.status = utils.get_status(self.model_dir)
-        except OSError:
+        except OSError:     # otherwise initialize the status
             self.status = {"num_frames": 0, "update": 0}
         if self.txt_logger:self.txt_logger.info("Training status loaded\n")
 
@@ -68,34 +101,51 @@ class Agent:
             preprocess_obss.vocab.load_vocab(self.status["vocab"])
         if self.txt_logger:self.txt_logger.info("Observations preprocessor loaded")
 
+        # get the obs_space and the observation pre-processor
+        # (for manipulating gym observations into a torch-friendly format)
         obs_space, self.preprocess_obss = utils.get_obss_preprocessor(self.env.observation_space)
         self.acmodel = ACModel(obs_space, self.env.action_space, use_memory=use_memory, use_text=use_text)
-        self.device = device
-        self.argmax = argmax
+        self.device = device    # store the device {'cpu', 'cuda:N'}
+        self.argmax = argmax    # if we are using greedy action selection
+                                # or are we using probabilistic action selection
 
-        if self.acmodel.recurrent:
+        if self.acmodel.recurrent:  # initialize the memories
             self.memories = torch.zeros(num_cpu, self.acmodel.memory_size, device=self.device)
 
-        if "model_state" in self.status:
+        if "model_state" in self.status:    # if we have a saved model ('model_state') in the status
+                                            # load that into the initialized model
             self.acmodel.load_state_dict(self.status["model_state"])
-        self.acmodel.to(device)
+        self.acmodel.to(device)             # make sure the model is located on the correct device
         self.txt_logger.info("Model loaded\n")
         self.txt_logger.info("{}\n".format(self.acmodel))
 
-        if 'model_state' in self.status:
-            self.acmodel.load_state_dict(self.status['model_state'])
-        self.acmodel.to(self.device)
+        # some redundant code.  uncomment if there are issues and delete after enough testing
+        #if 'model_state' in self.status:
+        #    self.acmodel.load_state_dict(self.status['model_state'])
+        #self.acmodel.to(self.device)
         self.acmodel.eval()
         if hasattr(self.preprocess_obss, "vocab"):
             self.preprocess_obss.vocab.load_vocab(utils.get_vocab(model_dir))
 
     def init_training_algo(self, num_envs=None):
+        """
+        Initialize the training algorithm.
+
+        This primarily calls the object creation functions for the A2C or PPO2 and the optimizer, but this also spawns
+        a number of parallel environments, based on the self.num_cpu or num_envs input (if provided).
+
+        Note, the spawning of parallel environments is VERY slow due to deepcopying the termination sets.  I tried some
+        work arounds, but nothing worked properly, so we are stuck with it for now.
+
+        :param num_envs: an override for the default number of environments to spawn (in self.num_cpu)
+        """
         if not num_envs:
             num_envs = self.num_cpu
 
         if self.model_type == "A2C":
+            # check to make sure that the A2C parameters are set
             assert self.optim_alpha
-            self.training_envs = [deepcopy(self.env) for i in range(num_envs)]
+            self.training_envs = [deepcopy(self.env) for i in range(num_envs)]  # spawn parallel environments
 
             if self.acmodel.recurrent:
                 self.memories = torch.zeros(num_envs, self.acmodel.memory_size, device=self.device)
@@ -104,10 +154,12 @@ class Agent:
                                 self.acmodel, self.device,
                                 self.frames_per_proc, self.discount, self.lr, self.gae_lambda,
                                 self.entropy_coef, self.value_loss_coef, self.max_grad_norm, self.recurrence,
-                                self.optim_alpha, self.optim_eps, self.preprocess_obss)
+                                self.optim_alpha,
+                                self.optim_eps, self.preprocess_obss)
         elif self.model_type == "PPO2":
+            # check to see if the PPO2 parameters are set
             assert self.clip_eps and self.epochs and self.batch_size
-            self.training_envs = [deepcopy(self.env) for i in range(num_envs)]
+            self.training_envs = [deepcopy(self.env) for i in range(num_envs)]  # spawn parallel environments
 
             if self.acmodel.recurrent:
                 self.memories = torch.zeros(num_envs, self.acmodel.memory_size, device=self.device)
@@ -116,17 +168,29 @@ class Agent:
                                 self.acmodel, self.device,
                                 self.frames_per_proc, self.discount, self.lr, self.gae_lambda,
                                 self.entropy_coef, self.value_loss_coef, self.max_grad_norm, self.recurrence,
-                                self.optim_eps, self.clip_eps, self.epochs, self.batch_size, self.preprocess_obss)
+                                self.clip_eps, self.epochs, self.batch_size,
+                                self.optim_eps, self.preprocess_obss)
         else:
             raise ValueError("Incorrect algorithm name: {}".format(algo_type))
 
+        # load the optimizer state, if it exists
         if "optimizer_state" in self.status:
             self.algo.optimizer.load_state_dict(self.status["optimizer_state"])
         self.txt_logger.info("Optimizer loaded\n")
 
-    def learn(self, total_timesteps, log_interval=1, save_interval=10, save_env_info=True):
-        self.init_training_algo()
+    def learn(self, total_timesteps, log_interval=1, save_interval=10, save_env_info=False):
+        """
+        The primary training loop.
 
+        :param total_timesteps: the total number of timesteps
+        :param log_interval: the period between logging/printing updates
+        :param save_interval: the number of updates between model saving
+        :param save_env_info: if we save the environment info (termination set) VERY SLOW
+        :return: True, if training is successful
+        """
+        self.init_training_algo()   # initialize the training algo/environment list/optimizer
+
+        # initialize parameters
         self.num_frames = self.status["num_frames"]
         update = self.status["update"]
         start_time = time.time()
@@ -189,6 +253,10 @@ class Agent:
         return True
 
     def _save_training_info(self, update):
+        """
+
+        :param update:
+        """
         self.status = {"num_frames": self.num_frames, "update": update,
                        "model_state": self.acmodel.state_dict(), "optimizer_state": self.algo.optimizer.state_dict()}
         if hasattr(self.preprocess_obss, "vocab"):
@@ -197,6 +265,9 @@ class Agent:
         self.txt_logger.info("Status saved")
 
     def _clear_training_envs(self):
+        """
+
+        """
         # the termination set gets lost, so we need to store it again
         self.env.termination_set = [s for e in self.training_envs for s in e.termination_set]
 
@@ -206,21 +277,47 @@ class Agent:
         time.sleep(0.1)             # attempt to fix broken pipe errors
 
     def save(self, f):
+        """
+        Legacy function for saving the model.
+
+        TODO: place the saving logic for the model here
+        :param f:
+        """
         print('self.save() - currently not implemented')
 
     def set_env(self, env):
+        """
+
+        :param env:
+        """
         assert isinstance(env, gym.Env)
         self.env = env
         self.training_envs = None
 
     def predict(self, obs, state=None, deterministic=False):
+        """
+        Wrapper for training code compatibility.  Calls get_action() to predict the action to take based on the
+        current observation.
+
+        :param obs: observation for predicting the action
+        :param state: state of the LSTM (unused)
+        :param deterministic: whether to use deterministic or probabilistic actions (unused)
+        :return: action and LSTM state
+        """
+        assert (state==None) and (deterministic==False) # still need to reimplement
         return self.get_action(obs), None   # return action, states - states is unused at the moment
 
     def get_actions(self, obss):
+        """
+
+
+        :param obss: list of observations for predicting actions
+        :return: list of actions for the associated observations
+        """
         preprocessed_obss = self.preprocess_obss(obss, device=self.device)
 
-        with torch.no_grad():
-            if self.acmodel.recurrent:
+        with torch.no_grad():                   # don't calculate the gradients, since we are doing a forward pass
+            if self.acmodel.recurrent:          # if we are using a recurrent model
                 dist, _, self.memories = self.acmodel(preprocessed_obss, self.memories)
             else:
                 dist, _ = self.acmodel(preprocessed_obss)
@@ -233,12 +330,31 @@ class Agent:
         return actions.cpu().numpy()
 
     def get_action(self, obs):
+        """
+        Wrapper for get_actions() to produce just a single action (rather than a list of actions) for acting.
+
+        :param obs: single observation
+        :return: single action
+        """
         return self.get_actions([obs])[0]
 
     def analyze_feedbacks(self, rewards, dones):
+        """
+        rl-starter-files code.  Not sure what this does.
+
+        :param rewards:
+        :param dones:
+        """
         if self.acmodel.recurrent:
             masks = 1 - torch.tensor(dones, dtype=torch.float, device=self.device).unsqueeze(1)
             self.memories *= masks
 
     def analyze_feedback(self, reward, done):
+        """
+        rl-starter-files code.  Not sure what this does (other than wrap analyze_feedbacks().
+
+        :param reward:
+        :param done:
+        :return:
+        """
         return self.analyze_feedbacks([reward], [done])
