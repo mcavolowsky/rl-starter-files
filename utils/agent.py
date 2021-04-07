@@ -168,8 +168,9 @@ class Agent:
                                 self.acmodel, self.device,
                                 self.frames_per_proc, self.discount, self.lr, self.gae_lambda,
                                 self.entropy_coef, self.value_loss_coef, self.max_grad_norm, self.recurrence,
+                                self.optim_eps,
                                 self.clip_eps, self.epochs, self.batch_size,
-                                self.optim_eps, self.preprocess_obss)
+                                self.preprocess_obss)
         else:
             raise ValueError("Incorrect algorithm name: {}".format(algo_type))
 
@@ -310,7 +311,7 @@ class Agent:
         :param deterministic: whether to use deterministic or probabilistic actions (unused)
         :return: action and LSTM state
         """
-        assert (state==None) and (deterministic==False) # still need to reimplement
+        # assert (state==None) and (deterministic==False) # still need to reimplement
         return self.get_action(obs), None   # return action, states - states is unused at the moment
 
     def get_actions(self, obss):
