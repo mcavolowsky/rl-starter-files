@@ -94,6 +94,7 @@ class Agent:
         try:                # if we have a saved model, load it
             self.status = utils.get_status(self.model_dir)
         except OSError:     # otherwise initialize the status
+            print('error loading saved model.  initializing empty model...')
             self.status = {"num_frames": 0, "update": 0}
         if self.txt_logger:self.txt_logger.info("Training status loaded\n")
 
