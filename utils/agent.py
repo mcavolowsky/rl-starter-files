@@ -276,11 +276,12 @@ class Agent:
         """
 
         # the termination set gets lost, so we need to store it again
-        self.env.termination_set = [s for e in self.training_envs for s in e.termination_set]
+        if hasattr(self.env, 'termination_set'):
+            self.env.termination_set = [s for e in self.training_envs for s in e.termination_set]
 
         # clear the env and the training envs
         self.algo.env = None
-        self.training_envs = None
+        if hasattr(self.env, 'termination_set'):self.training_envs = None
 
     def save(self, f):
         """
