@@ -125,8 +125,8 @@ class Agent:
 
         # some redundant code.  uncomment if there are issues and delete after enough testing
         #if 'model_state' in self.status:
-        #    self.acmodel.load_state_dict(self.status['model_state'])
-        #self.acmodel.to(self.device)
+        #    self.model.load_state_dict(self.status['model_state'])
+        #self.model.to(self.device)
         self.model.eval()
         if hasattr(self.preprocess_obss, "vocab"):
             self.preprocess_obss.vocab.load_vocab(utils.get_vocab(model_dir))
@@ -164,11 +164,11 @@ class Agent:
             assert self.optim_alpha
             self.training_envs = [deepcopy(self.env) for i in range(num_envs)]  # spawn parallel environments
 
-            if self.acmodel.recurrent:
-                self.memories = torch.zeros(num_envs, self.acmodel.memory_size, device=self.device)
+            if self.model.recurrent:
+                self.memories = torch.zeros(num_envs, self.model.memory_size, device=self.device)
 
             self.algo = torch_ac.A2CAlgo(self.training_envs,
-                                         self.acmodel, self.device,
+                                         self.model, self.device,
                                          self.frames_per_proc, self.discount, self.lr, self.gae_lambda,
                                          self.entropy_coef, self.value_loss_coef, self.max_grad_norm,
                                          self.recurrence,
@@ -179,11 +179,11 @@ class Agent:
             assert self.clip_eps and self.epochs and self.batch_size
             self.training_envs = [deepcopy(self.env) for i in range(num_envs)]  # spawn parallel environments
 
-            if self.acmodel.recurrent:
-                self.memories = torch.zeros(num_envs, self.acmodel.memory_size, device=self.device)
+            if self.model.recurrent:
+                self.memories = torch.zeros(num_envs, self.model.memory_size, device=self.device)
 
             self.algo = torch_ac.PPOAlgo(self.training_envs,
-                                         self.acmodel, self.device,
+                                         self.model, self.device,
                                          self.frames_per_proc, self.discount, self.lr, self.gae_lambda,
                                          self.entropy_coef, self.value_loss_coef, self.max_grad_norm,
                                          self.recurrence,
