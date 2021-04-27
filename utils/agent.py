@@ -105,7 +105,10 @@ class Agent:
         # get the obs_space and the observation pre-processor
         # (for manipulating gym observations into a torch-friendly format)
         obs_space, self.preprocess_obss = utils.get_obss_preprocessor(self.env.observation_space)
-        self.model = MultiQModel(obs_space, self.env.action_space, use_memory=use_memory, use_text=use_text, reward_size=2)
+        if model_type == 'multiQ':
+            self.model = MultiQModel(obs_space, self.env.action_space, use_memory=use_memory, use_text=use_text, reward_size=2)
+        else:
+            self.model = ACModel(obs_space, self.env.action_space, use_memory=use_memory, use_text=use_text)
         self.device = device    # store the device {'cpu', 'cuda:N'}
         self.argmax = argmax    # if we are using greedy action selection
                                 # or are we using probabilistic action selection
@@ -148,13 +151,16 @@ class Agent:
         if self.model.recurrent:
             self.memories = torch.zeros(num_envs, self.model.memory_size, device=self.device)
 
-        self.algo = torch_ac.MultiQAlgo(envs=self.training_envs,
+        if self.model_type == 'multiQ':
+            self.algo = torch_ac.MultiQAlgo(envs=self.training_envs,
                                         acmodel=self.model, device=self.device,
                                         num_frames_per_proc=self.frames_per_proc,
                                         discount=self.discount, lr=self.lr,
                                         recurrence=self.recurrence,
                                         adam_eps=self.optim_eps,
                                         preprocess_obss=self.preprocess_obss)
+        elif self.model_type == 'PPO2':
+            self.algo = torch_ac.PPO2()
 
         # load the optimizer state, if it exists
         if "optimizer_state" in self.status:
