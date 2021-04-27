@@ -17,12 +17,12 @@ import tensorboardX                 # import training monitoring library
 import gym                          # import gym for type-checking
 
 import utils                        # import rl-starter-files utils (loggers, saving/loading, obs preprocessor, etc.)
-from model import ACModel, MultiQModel           #
+from model import ACModel           #
 
 from copy import deepcopy           # import deepcopy for spawning new env instances
 
 class Agent:
-    def __init__(self, env, model_dir, model_type='multiQ', logger=None,
+    def __init__(self, env, model_dir, model_type='PPO2', logger=None,
                  argmax=False, use_memory=False, use_text=False,
                  num_cpu=1, frames_per_proc=None,
                  discount=0.99, lr=0.001, gae_lambda=0.95,
@@ -105,29 +105,26 @@ class Agent:
         # get the obs_space and the observation pre-processor
         # (for manipulating gym observations into a torch-friendly format)
         obs_space, self.preprocess_obss = utils.get_obss_preprocessor(self.env.observation_space)
-        if model_type == 'multiQ':
-            self.model = MultiQModel(obs_space, self.env.action_space, use_memory=use_memory, use_text=use_text, reward_size=2)
-        else:
-            self.model = ACModel(obs_space, self.env.action_space, use_memory=use_memory, use_text=use_text)
+        self.acmodel = ACModel(obs_space, self.env.action_space, use_memory=use_memory, use_text=use_text)
         self.device = device    # store the device {'cpu', 'cuda:N'}
         self.argmax = argmax    # if we are using greedy action selection
                                 # or are we using probabilistic action selection
 
-        if self.model.recurrent:  # initialize the memories
-            self.memories = torch.zeros(num_cpu, self.model.memory_size, device=self.device)
+        if self.acmodel.recurrent:  # initialize the memories
+            self.memories = torch.zeros(num_cpu, self.acmodel.memory_size, device=self.device)
 
         if "model_state" in self.status:    # if we have a saved model ('model_state') in the status
                                             # load that into the initialized model
-            self.model.load_state_dict(self.status["model_state"])
-        self.model.to(device)             # make sure the model is located on the correct device
+            self.acmodel.load_state_dict(self.status["model_state"])
+        self.acmodel.to(device)             # make sure the model is located on the correct device
         self.txt_logger.info("Model loaded\n")
-        self.txt_logger.info("{}\n".format(self.model))
+        self.txt_logger.info("{}\n".format(self.acmodel))
 
         # some redundant code.  uncomment if there are issues and delete after enough testing
         #if 'model_state' in self.status:
         #    self.acmodel.load_state_dict(self.status['model_state'])
         #self.acmodel.to(self.device)
-        self.model.eval()
+        self.acmodel.eval()
         if hasattr(self.preprocess_obss, "vocab"):
             self.preprocess_obss.vocab.load_vocab(utils.get_vocab(model_dir))
 
@@ -146,21 +143,37 @@ class Agent:
         if not num_envs:
             num_envs = self.num_cpu
 
-        self.training_envs = [deepcopy(self.env) for i in range(num_envs)]  # spawn parallel environments
+        if self.model_type == "A2C":
+            # check to make sure that the A2C parameters are set
+            assert self.optim_alpha
+            self.training_envs = [deepcopy(self.env) for i in range(num_envs)]  # spawn parallel environments
 
-        if self.model.recurrent:
-            self.memories = torch.zeros(num_envs, self.model.memory_size, device=self.device)
+            if self.acmodel.recurrent:
+                self.memories = torch.zeros(num_envs, self.acmodel.memory_size, device=self.device)
 
-        if self.model_type == 'multiQ':
-            self.algo = torch_ac.MultiQAlgo(envs=self.training_envs,
-                                        acmodel=self.model, device=self.device,
-                                        num_frames_per_proc=self.frames_per_proc,
-                                        discount=self.discount, lr=self.lr,
-                                        recurrence=self.recurrence,
-                                        adam_eps=self.optim_eps,
-                                        preprocess_obss=self.preprocess_obss)
-        elif self.model_type == 'PPO2':
-            self.algo = torch_ac.PPO2()
+            self.algo = torch_ac.A2CAlgo(self.training_envs,
+                                self.acmodel, self.device,
+                                self.frames_per_proc, self.discount, self.lr, self.gae_lambda,
+                                self.entropy_coef, self.value_loss_coef, self.max_grad_norm, self.recurrence,
+                                self.optim_alpha,
+                                self.optim_eps, self.preprocess_obss)
+        elif self.model_type == "PPO2":
+            # check to see if the PPO2 parameters are set
+            assert self.clip_eps and self.epochs and self.batch_size
+            self.training_envs = [deepcopy(self.env) for i in range(num_envs)]  # spawn parallel environments
+
+            if self.acmodel.recurrent:
+                self.memories = torch.zeros(num_envs, self.acmodel.memory_size, device=self.device)
+
+            self.algo = torch_ac.PPOAlgo(self.training_envs,
+                                self.acmodel, self.device,
+                                self.frames_per_proc, self.discount, self.lr, self.gae_lambda,
+                                self.entropy_coef, self.value_loss_coef, self.max_grad_norm, self.recurrence,
+                                self.optim_eps,
+                                self.clip_eps, self.epochs, self.batch_size,
+                                self.preprocess_obss)
+        else:
+            raise ValueError("Incorrect algorithm name: {}".format(algo_type))
 
         # load the optimizer state, if it exists
         if "optimizer_state" in self.status:
@@ -249,7 +262,7 @@ class Agent:
 
         # update the status dictionary
         self.status = {"num_frames": self.num_frames, "update": self.update,
-                       "model_state": self.model.state_dict(), "optimizer_state": self.algo.optimizer.state_dict()}
+                       "model_state": self.acmodel.state_dict(), "optimizer_state": self.algo.optimizer.state_dict()}
 
         if hasattr(self.preprocess_obss, "vocab"):      # if we are using NLP save, NLP info
             self.status["vocab"] = self.preprocess_obss.vocab.vocab
@@ -263,12 +276,11 @@ class Agent:
         """
 
         # the termination set gets lost, so we need to store it again
-        if hasattr(self.env, 'termination_set'):
-            self.env.termination_set = [s for e in self.training_envs for s in e.termination_set]
+        self.env.termination_set = [s for e in self.training_envs for s in e.termination_set]
 
         # clear the env and the training envs
         self.algo.env = None
-        if hasattr(self.env, 'termination_set'):self.training_envs = None
+        self.training_envs = None
 
     def save(self, f):
         """
@@ -315,10 +327,10 @@ class Agent:
         preprocessed_obss = self.preprocess_obss(obss, device=self.device)
 
         with torch.no_grad():                   # don't calculate the gradients, since we are doing a forward pass
-            if self.model.recurrent:          # if we are using a recurrent model
-                dist, _, self.memories = self.model(preprocessed_obss, self.memories)
+            if self.acmodel.recurrent:          # if we are using a recurrent model
+                dist, _, self.memories = self.acmodel(preprocessed_obss, self.memories)
             else:                               # otherwise
-                dist, _ = self.model(preprocessed_obss)
+                dist, _ = self.acmodel(preprocessed_obss)
                                                 # preprocess the observations to put them in a torch-friendly format
 
         # the acmodel returns a probability distribution
@@ -345,7 +357,7 @@ class Agent:
         :param rewards:
         :param dones:
         """
-        if self.model.recurrent:
+        if self.acmodel.recurrent:
             masks = 1 - torch.tensor(dones, dtype=torch.float, device=self.device).unsqueeze(1)
             self.memories *= masks
 
