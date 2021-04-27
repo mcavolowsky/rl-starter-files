@@ -159,8 +159,39 @@ class Agent:
                                         recurrence=self.recurrence,
                                         adam_eps=self.optim_eps,
                                         preprocess_obss=self.preprocess_obss)
-        elif self.model_type == 'PPO2':
-            self.algo = torch_ac.PPO2()
+        elif self.model_type == "A2C":
+            # check to make sure that the A2C parameters are set
+            assert self.optim_alpha
+            self.training_envs = [deepcopy(self.env) for i in range(num_envs)]  # spawn parallel environments
+
+            if self.acmodel.recurrent:
+                self.memories = torch.zeros(num_envs, self.acmodel.memory_size, device=self.device)
+
+            self.algo = torch_ac.A2CAlgo(self.training_envs,
+                                         self.acmodel, self.device,
+                                         self.frames_per_proc, self.discount, self.lr, self.gae_lambda,
+                                         self.entropy_coef, self.value_loss_coef, self.max_grad_norm,
+                                         self.recurrence,
+                                         self.optim_alpha,
+                                         self.optim_eps, self.preprocess_obss)
+        elif self.model_type == "PPO2":
+            # check to see if the PPO2 parameters are set
+            assert self.clip_eps and self.epochs and self.batch_size
+            self.training_envs = [deepcopy(self.env) for i in range(num_envs)]  # spawn parallel environments
+
+            if self.acmodel.recurrent:
+                self.memories = torch.zeros(num_envs, self.acmodel.memory_size, device=self.device)
+
+            self.algo = torch_ac.PPOAlgo(self.training_envs,
+                                         self.acmodel, self.device,
+                                         self.frames_per_proc, self.discount, self.lr, self.gae_lambda,
+                                         self.entropy_coef, self.value_loss_coef, self.max_grad_norm,
+                                         self.recurrence,
+                                         self.optim_eps,
+                                         self.clip_eps, self.epochs, self.batch_size,
+                                         self.preprocess_obss)
+        else:
+            raise ValueError("Incorrect algorithm name: {}".format(algo_type))
 
         # load the optimizer state, if it exists
         if "optimizer_state" in self.status:
