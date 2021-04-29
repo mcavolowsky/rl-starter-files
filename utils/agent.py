@@ -247,7 +247,7 @@ class Agent:
                 data += [logs["entropy"], logs["value"], logs["policy_loss"], logs["value_loss"], logs["grad_norm"]]
 
                 self.txt_logger.info(
-                    "U {} | F {:06} | FPS {:04.0f} | D {} | rR:usmM {:.2f} {:.2f} {:.2f} {:.2f} | F:usmM {:.1f} {:.1f} {} {} | H {:.3f} | V {:.3f} | pL {:.3f} | vL {:.3f} | D {:.3f}"
+                    "U {} | F {:06} | FPS {:04.0f} | D {} | rR:usmM {} {} {} {} | F:usmM {} {} {} {} | H {:.3f} | V {:.3f} | pL {:.3f} | vL {:.3f} | D {:.3f}"
                     .format(*data))
 
                 header += ["return_" + key for key in return_per_episode.keys()]
@@ -259,7 +259,11 @@ class Agent:
                 self.csv_file.flush()
 
                 for field, value in zip(header, data):
-                    self.tb_writer.add_scalar(field, value, self.num_frames)
+                    if type(value) is torch.Tensor and value.dim()>0:
+                        for i,v in enumerate(value):
+                            self.tb_writer.add_scalar(field+'_{}'.format(i), v, self.num_frames)
+                    else:
+                        self.tb_writer.add_scalar(field, value, self.num_frames)
 
             # Save status
 
