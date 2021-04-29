@@ -153,7 +153,7 @@ class Agent:
 
         if self.model_type == 'multiQ':
             self.algo = torch_ac.MultiQAlgo(envs=self.training_envs,
-                                        acmodel=self.model, device=self.device,
+                                        model=self.model, device=self.device,
                                         num_frames_per_proc=self.frames_per_proc,
                                         discount=self.discount, lr=self.lr,
                                         recurrence=self.recurrence,
