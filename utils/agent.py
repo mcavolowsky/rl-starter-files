@@ -106,8 +106,9 @@ class Agent:
         # (for manipulating gym observations into a torch-friendly format)
         obs_space, self.preprocess_obss = utils.get_obss_preprocessor(self.env.observation_space)
         if model_type == 'multiQ':
+            for _ in range(10): print('fix use_memory=False')
             self.model = MultiQModel(obs_space, self.env.action_space,
-                                     use_memory=use_memory, use_text=use_text,
+                                     use_memory=False, use_text=use_text,
                                      reward_size=2 if self.env.phi else 1)
         else:
             self.model = ACModel(obs_space, self.env.action_space, use_memory=use_memory, use_text=use_text)
