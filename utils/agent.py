@@ -272,9 +272,8 @@ class Agent:
 
             if save_interval > 0 and self.update % save_interval == 0:
                 self._save_training_info()
-                if save_env_info:
-                    for e in self.training_envs:
-                        if hasattr(e, 'save_env_info'): e.save_env_info()
+                if hasattr(self.algo, 'eval_model'):
+                    self.algo.eval_model.load_state_dict(self.algo.model.state_dict())
 
         self._clear_training_envs()
 

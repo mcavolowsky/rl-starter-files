@@ -15,7 +15,7 @@ def seed(seed):
 def synthesize(array):
     d = collections.OrderedDict()
 
-    if type(array[0]) is torch.Tensor:
+    if type(array[-1]) is torch.Tensor:
         #d["mean"] = tuple(numpy.array(torch.mean(torch.stack(array),axis=0).cpu()))
         #d["std"] = tuple(numpy.array(torch.std(torch.stack(array),axis=0).cpu()))
         #d["min"] = tuple(numpy.array(torch.min(torch.stack(array),axis=0).values.cpu()))
