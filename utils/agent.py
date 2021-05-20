@@ -180,7 +180,7 @@ class Agent:
             self.algo.optimizer.load_state_dict(self.status["optimizer_state"])
         self.txt_logger.info("Optimizer loaded\n")
 
-    def learn(self, total_timesteps, log_interval=1, save_interval=10, save_env_info=False):
+    def learn(self, total_timesteps, log_interval=1, save_interval=10, save_env_info=False, save_loc=None):
         """
         The primary training loop.
 
@@ -191,6 +191,9 @@ class Agent:
         :return: True, if training is successful
         """
         self.init_training_algo()   # initialize the training algo/environment list/optimizer
+
+        if save_loc:
+            print('ignoring save_loc override.  if this is not intended, fix me')
 
         # initialize parameters
         self.num_frames = self.status["num_frames"]
@@ -276,7 +279,8 @@ class Agent:
         """
 
         # the termination set gets lost, so we need to store it again
-        self.env.termination_set = [s for e in self.training_envs for s in e.termination_set]
+        if hasattr(self.env, 'termination_set'):
+            self.env.termination_set = [s for e in self.training_envs for s in e.termination_set]
 
         # clear the env and the training envs
         self.algo.env = None
