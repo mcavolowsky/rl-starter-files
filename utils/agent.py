@@ -21,6 +21,9 @@ from model import ACModel, MultiQModel           #
 
 from copy import deepcopy           # import deepcopy for spawning new env instances
 
+LOG_STR = "U {} | F {:06} | FPS {:04.0f} | D {} | rR:usmM {:.2f} {:.2f} {:.2f} {:.2f} | F:usmM {:.2f} {:.2f} {:.2f} {:.2f} | H {:.3f} | V {:.3f} | pL {:.3f} | vL {:.3f} | D {:.3f}"
+#LOG_STR = "U {} | F {:06} | FPS {:04.0f} | D {} | rR:usmM {} {} {} {} | F:usmM {} {} {} {} | H {:.3f} | V {:.3f} | pL {:.3f} | vL {:.3f} | D {:.3f}"
+
 class Agent:
     def __init__(self, env, model_dir, model_type='multiQ', logger=None,
                  argmax=False, use_memory=False, use_text=False,
@@ -249,9 +252,8 @@ class Agent:
                 header += ["entropy", "value", "policy_loss", "value_loss", "grad_norm"]
                 data += [logs["entropy"], logs["value"], logs["policy_loss"], logs["value_loss"], logs["grad_norm"]]
 
-                self.txt_logger.info(
-                    "U {} | F {:06} | FPS {:04.0f} | D {} | rR:usmM {} {} {} {} | F:usmM {} {} {} {} | H {:.3f} | V {:.3f} | pL {:.3f} | vL {:.3f} | D {:.3f}"
-                    .format(*data))
+
+                self.txt_logger.info(LOG_STR.format(*data))
 
                 header += ["return_" + key for key in return_per_episode.keys()]
                 data += return_per_episode.values()
@@ -338,6 +340,7 @@ class Agent:
         :return: action and LSTM state
         """
         # assert (state==None) and (deterministic==False) # still need to reimplement
+        if not state is None: self.memories = state
         return self.get_action(obs), None   # return action, states - states is unused at the moment
 
     def get_actions(self, obss):
