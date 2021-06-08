@@ -17,7 +17,7 @@ import tensorboardX                 # import training monitoring library
 import gym                          # import gym for type-checking
 
 import utils                        # import rl-starter-files utils (loggers, saving/loading, obs preprocessor, etc.)
-from model import ACModel, MultiQModel           #
+from model import ACModel, MultiQModel, MOWeightModel #
 
 from copy import deepcopy           # import deepcopy for spawning new env instances
 
@@ -91,7 +91,8 @@ class Agent:
 
         self.algo = None    # we don't initialize the algorithm until we call init_training_algo()
 
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        #device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        device = 'cpu'      # manual override for CUDA
         self.txt_logger.info(f"Device: {device}\n")
 
         try:                # if we have a saved model, load it
@@ -113,9 +114,20 @@ class Agent:
             self.model = MultiQModel(obs_space, self.env.action_space,
                                      use_memory=False, use_text=use_text,
                                      reward_size=2 if self.env.phi else 1)
+        elif model_type == 'weightedPPO':
+            self.model = MOWeightModel(obs_space, self.env.action_space,
+                                     use_memory=False,
+                                     reward_size=2 if self.env.phi else 1,
+                                     n_weights=10)
         else:
             self.model = ACModel(obs_space, self.env.action_space, use_memory=use_memory, use_text=use_text)
+
         self.device = device    # store the device {'cpu', 'cuda:N'}
+        if self.device == 'cpu':
+            self.model.cpu()
+        else:
+            self.model.cuda()
+
         self.argmax = argmax    # if we are using greedy action selection
                                 # or are we using probabilistic action selection
 
@@ -125,7 +137,7 @@ class Agent:
         if "model_state" in self.status:    # if we have a saved model ('model_state') in the status
                                             # load that into the initialized model
             self.model.load_state_dict(self.status["model_state"])
-        self.model.to(device)             # make sure the model is located on the correct device
+        self.model.to(self.device)          # make sure the model is located on the correct device
         self.txt_logger.info("Model loaded\n")
         self.txt_logger.info("{}\n".format(self.model))
 
@@ -165,6 +177,22 @@ class Agent:
                                         recurrence=self.recurrence,
                                         adam_eps=self.optim_eps,
                                         preprocess_obss=self.preprocess_obss)
+        elif self.model_type == 'weightedPPO':
+            # check to see if the PPO2 parameters are set
+            assert self.clip_eps and self.epochs and self.batch_size
+            self.training_envs = [deepcopy(self.env) for i in range(num_envs)]  # spawn parallel environments
+
+            if self.model.recurrent:
+                self.memories = torch.zeros(num_envs, self.model.memory_size, device=self.device)
+
+            self.algo = torch_ac.WeightedPPOAlgo(self.training_envs,
+                                         self.model, self.device,
+                                         self.frames_per_proc, self.discount, self.lr, self.gae_lambda,
+                                         self.entropy_coef, self.value_loss_coef, self.max_grad_norm,
+                                         self.recurrence,
+                                         self.optim_eps,
+                                         self.clip_eps, self.epochs, self.batch_size,
+                                         self.preprocess_obss)
         elif self.model_type == "A2C":
             # check to make sure that the A2C parameters are set
             assert self.optim_alpha
@@ -329,7 +357,7 @@ class Agent:
         self.env = env
         self.training_envs = None
 
-    def predict(self, obs, state=None, deterministic=False):
+    def predict(self, obs, state=None, deterministic=False, weight=None):
         """
         Wrapper for training code compatibility.  Calls get_action() to predict the action to take based on the
         current observation.
@@ -341,9 +369,9 @@ class Agent:
         """
         # assert (state==None) and (deterministic==False) # still need to reimplement
         if not state is None: self.memories = state
-        return self.get_action(obs), None   # return action, states - states is unused at the moment
+        return self.get_action(obs, weight=weight), None   # return action, states - states is unused at the moment
 
-    def get_actions(self, obss):
+    def get_actions(self, obss, weight=None):
         """
         Get a list of actions for a list of observations.
 
@@ -356,27 +384,27 @@ class Agent:
 
         with torch.no_grad():                   # don't calculate the gradients, since we are doing a forward pass
             if self.model.recurrent:          # if we are using a recurrent model
-                dist, _, self.memories = self.model(preprocessed_obss, self.memories)
+                dist, value, self.memories = self.model(preprocessed_obss, self.memories, w=weight)
             else:                               # otherwise
-                dist, _ = self.model(preprocessed_obss)
+                dist, value = self.model(preprocessed_obss)
                                                 # preprocess the observations to put them in a torch-friendly format
 
         # the acmodel returns a probability distribution
-        if self.argmax:                         # if we are detemrinistic, take the action with the highest probability
+        if self.argmax:                         # if we are deterministic, take the action with the highest probability
             actions = dist.probs.max(1, keepdim=True)[1]
         else:                                   # otherwise sample the distribution to select the action
             actions = dist.sample()
 
         return actions.cpu().numpy()            # reaturn a numpy array, not a tensor
 
-    def get_action(self, obs):
+    def get_action(self, obs, weight=None):
         """
         Wrapper for get_actions() to produce just a single action (rather than a list of actions) for acting.
 
         :param obs: single observation
         :return: single action
         """
-        return self.get_actions([obs])[0]
+        return self.get_actions([obs], weight)[0]
 
     def analyze_feedbacks(self, rewards, dones):
         """
