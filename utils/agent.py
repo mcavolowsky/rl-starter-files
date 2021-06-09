@@ -273,8 +273,8 @@ class Agent:
 
                 header = ["update", "frames", "FPS", "duration"]
                 data = [self.update, self.num_frames, fps, duration]
-                header += ["rreturn_" + key for key in rreturn_per_episode.keys()]
-                data += rreturn_per_episode.values()
+                header += ["return_" + key for key in rreturn_per_episode.keys()]
+                data += return_per_episode.values()
                 header += ["num_frames_" + key for key in num_frames_per_episode.keys()]
                 data += num_frames_per_episode.values()
                 header += ["entropy", "value", "policy_loss", "value_loss", "grad_norm"]

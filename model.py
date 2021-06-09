@@ -297,7 +297,7 @@ class MOWeightModel(nn.Module, torch_ac.RecurrentACModel):
     def semi_memory_size(self):
         return self.image_embedding_size
 
-    def forward(self, obs, memory, w=None, scalarize=True):
+    def forward(self, obs, memory, w=None, return_multi=False):
         """
         Calculate the forward pass through the network based on the provided inputs (and memory, if using LSTM).
 
@@ -366,10 +366,10 @@ class MOWeightModel(nn.Module, torch_ac.RecurrentACModel):
 
         value = torch.matmul(multi_value,w)
 
-        if scalarize:
-            return dist, value, memory
+        if return_multi:
+            return dist, value, multi_value, memory
         else:
-            return dist, multi_value, memory
+            return dist, value, memory
 
 
 def _generate_convex_weights(v, n):
